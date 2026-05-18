@@ -53,7 +53,6 @@
             <p class="event-date"><strong>Date:</strong> {{ event.date|date:"F d, Y" }}</p>
             <p class="event-location"><strong>Location:</strong> {{ event.location }}</p>
             <p class="event-desc"><strong>Description:</strong> {{ event.description }}</p>
-            {# Removed event-level registration. Slot booking will indicate event registration. #}
             {% if can_edit %}
                 <button class="btn btn-add" onclick="openModal('create')">Add Schedule</button>
             {% endif %}
@@ -68,6 +67,7 @@
                             <th>Title</th>
                             <th>Time</th>
                             <th>Description</th>
+                            <th>Slots</th>
                             {% if can_edit %}<th>Actions</th>{% endif %}
                         </tr>
                     </thead>
@@ -81,14 +81,14 @@
                                 <ul style="list-style:none; padding-left:0;">
                                 {% for slot in schedule.slots.all %}
                                     <li style="margin-bottom:8px;">
-                                            <span class="slot-remaining" id="slot-remaining-{{ slot.id }}">({{ slot.remaining }} remaining)</span><br>
+                                        <span class="slot-remaining" id="slot-remaining-{{ slot.id }}">({{ slot.remaining }} remaining)</span><br>
                                         {% if user.is_authenticated %}
                                             {% if user in slot.registered_users.all %}
                                                 <span class="btn btn-success" style="cursor:default; font-size:12px;">Registered for this slot</span>
                                             {% elif slot.is_full %}
                                                 <span class="btn btn-danger" style="cursor:default; font-size:12px;">Slot Full</span>
                                             {% else %}
-                                                <button class="btn btn-add" style="font-size:12px;" onclick="registerSlot({{ slot.id }}, this, {{ slot.capacity|default:0 }} - {{ slot.registered_users.count|default:0 }})">Register for this slot</button>
+                                                <button class="btn btn-add" style="font-size:12px;" onclick="registerSlot({{ slot.id }}, this)">Register for this slot</button>
                                             {% endif %}
                                         {% else %}
                                             <a href="{% url 'login' %}" class="btn btn-add" style="font-size:12px;">Login to Register</a>
@@ -112,8 +112,6 @@
                                     >Edit</button>
                                     <button class="btn btn-danger" onclick="deleteSchedule({{ schedule.id }})" style="padding: 5px 10px; font-size: 12px;">Delete</button>
                                 </td>
-                            {% else %}
-                                <td></td>
                             {% endif %}
                         </tr>
                         {% endfor %}
@@ -148,8 +146,13 @@
 
     <script>
     (function () {
+        function getCSRFToken() {
+            const el = document.querySelector('[name="csrfmiddlewaretoken"]');
+            return el ? el.value : '';
+        }
+
         // Slot registration button AJAX
-        window.registerSlot = function(slotId, btn, remaining) {
+        window.registerSlot = function(slotId, btn) {
             const url = '{% url "events:slot_register" 0 %}'.replace('0', slotId);
             fetch(url, {
                 method: 'POST',
@@ -161,11 +164,8 @@
             })
             .then(async res => {
                 const text = await res.text();
-                try {
-                    return JSON.parse(text);
-                } catch (err) {
-                    throw new Error('Server did not return valid JSON: ' + text);
-                }
+                try { return JSON.parse(text); }
+                catch (err) { throw new Error('Server did not return valid JSON: ' + text); }
             })
             .then(data => {
                 if (data.success) {
@@ -173,10 +173,11 @@
                     btn.classList.remove('btn-add');
                     btn.classList.add('btn-success');
                     btn.disabled = true;
-                    // Update remaining count using the span
                     var remainingSpan = document.getElementById('slot-remaining-' + slotId);
                     if (remainingSpan) {
-                        remainingSpan.textContent = '(' + data.remaining + ' remaining)';
+                        var match = remainingSpan.textContent.match(/\d+/);
+                        var current = match ? parseInt(match[0]) : 1;
+                        remainingSpan.textContent = '(' + (current - 1) + ' remaining)';
                     }
                 } else {
                     alert(data.error || 'Could not register for slot.');
@@ -187,49 +188,13 @@
                 console.error(err);
             });
         }
-        // Event registration button AJAX
-        const registerBtn = document.getElementById('registerEventBtn');
-        if (registerBtn) {
-            registerBtn.addEventListener('click', function () {
-                fetch('{% url "events:event_register" event.id %}', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCSRFToken(),
-                        'Accept': 'application/json'
-                    },
-                    credentials: 'same-origin'
-                })
-                .then(async res => {
-                    const text = await res.text();
-                    try {
-                        return JSON.parse(text);
-                    } catch (err) {
-                        throw new Error('Server did not return valid JSON: ' + text);
-                    }
-                })
-                .then(data => {
-                    if (data.success) {
-                        registerBtn.textContent = 'Registered for this event';
-                        registerBtn.classList.remove('btn-add');
-                        registerBtn.classList.add('btn-success');
-                        registerBtn.disabled = true;
-                    } else {
-                        alert(data.error || 'Could not register.');
-                    }
-                })
-                .catch(err => {
-                    alert('Error registering for event. See console for details.');
-                    console.error(err);
-                });
-            });
-        }
+
         const page = document.getElementById('pageContainer');
         const modal = document.getElementById('scheduleModal');
         const form = document.getElementById('scheduleForm');
         const modalTitle = document.getElementById('modalTitle');
         const scheduleIdInput = document.getElementById('scheduleId');
 
-        // URL templates rendered server-side
         const createUrl = page.getAttribute('data-create-url') || '';
         const updateUrlTemplate = page.getAttribute('data-update-url-template') || '';
         const deleteUrlTemplate = page.getAttribute('data-delete-url-template') || '';
@@ -238,30 +203,19 @@
             return String(template).replace('0', id);
         }
 
-        function getCSRFToken() {
-            const el = document.querySelector('[name="csrfmiddlewaretoken"]');
-            return el ? el.value : '';
-        }
-
-        // Open modal for create or edit
         window.openModal = function(action, id = null, button = null) {
             modal.style.display = 'block';
             modal.setAttribute('aria-hidden', 'false');
-
             if (action === 'create') {
                 modalTitle.textContent = 'Add Schedule';
                 scheduleIdInput.value = '';
                 form.action = createUrl;
-                form.method = 'POST';
                 form.reset();
             } else if (action === 'edit') {
                 modalTitle.textContent = 'Edit Schedule';
                 scheduleIdInput.value = id;
                 form.action = urlFor(updateUrlTemplate, id);
-                form.method = 'POST';
                 form.reset();
-
-                // Populate from provided button's data attributes (avoids another GET)
                 if (button && button.dataset) {
                     document.getElementById('title').value = button.dataset.title || '';
                     document.getElementById('start_time').value = button.dataset.start || '';
@@ -272,7 +226,6 @@
         };
 
         window.openEditModal = function(id, button) {
-            // When called from inline onclick, `button` will be the element reference
             window.openModal('edit', id, button);
         };
 
@@ -282,74 +235,49 @@
             form.reset();
         };
 
-        // Submit create/update via FormData so backend handles as usual POST
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             const actionUrl = form.action || createUrl;
             const formData = new FormData(form);
-
             fetch(actionUrl, {
                 method: 'POST',
                 body: formData,
-                headers: {
-                    'X-CSRFToken': getCSRFToken(),
-                    'Accept': 'application/json' // server should return JSON on AJAX
-                },
+                headers: { 'X-CSRFToken': getCSRFToken(), 'Accept': 'application/json' },
                 credentials: 'same-origin'
             })
             .then(async (res) => {
-                // Try parse JSON, but handle non-json gracefully
                 const text = await res.text();
-                try {
-                    return JSON.parse(text);
-                } catch (err) {
-                    throw new Error('Server did not return valid JSON: ' + text);
-                }
+                try { return JSON.parse(text); }
+                catch (err) { throw new Error('Server did not return valid JSON: ' + text); }
             })
             .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                } else if (data.success) {
-                    // Refresh page to show updated schedules
-                    window.location.reload();
-                } else {
-                    window.location.reload();
-                }
+                if (data.error) { alert(data.error); }
+                else { window.location.reload(); }
             })
             .catch(err => {
                 console.error('Error submitting form:', err);
-                alert('There was an error saving the schedule. See console for details.');
+                alert('There was an error saving the schedule.');
             })
             .finally(() => closeModal());
         });
 
-        // Delete uses FormData POST (more compatible with Django views)
         window.deleteSchedule = function(id) {
             if (!confirm('Are you sure you want to delete this schedule?')) return;
             const deleteUrl = urlFor(deleteUrlTemplate, id);
-
             const data = new FormData();
             data.append('id', id);
-            // add CSRF token to body also (and header already set by getCSRFToken)
             const csrf = getCSRFToken();
             if (csrf) data.append('csrfmiddlewaretoken', csrf);
-
             fetch(deleteUrl, {
                 method: 'POST',
                 body: data,
-                headers: {
-                    'X-CSRFToken': csrf,
-                    'Accept': 'application/json'
-                },
+                headers: { 'X-CSRFToken': csrf, 'Accept': 'application/json' },
                 credentials: 'same-origin'
             })
             .then(async res => {
                 const text = await res.text();
-                try {
-                    return JSON.parse(text);
-                } catch (err) {
-                    throw new Error('Server did not return valid JSON: ' + text);
-                }
+                try { return JSON.parse(text); }
+                catch (err) { throw new Error('Server did not return valid JSON: ' + text); }
             })
             .then(data => {
                 if (data && data.success) {
@@ -362,11 +290,10 @@
             })
             .catch(err => {
                 console.error('Error deleting schedule:', err);
-                alert('There was an error deleting the schedule. See console for details.');
+                alert('There was an error deleting the schedule.');
             });
         };
 
-        // Close modal on outside click
         window.addEventListener('click', function(ev) {
             if (ev.target === modal) closeModal();
         });
