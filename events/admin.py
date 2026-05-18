@@ -1,5 +1,4 @@
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin
 from .models import Organizer, Event, Schedule, Slot
 
 @admin.register(Organizer)
@@ -11,20 +10,16 @@ class OrganizerAdmin(admin.ModelAdmin):
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     list_display = ['name', 'date', 'location', 'organizer']
-    list_filter = ['date', 'organizer__department']
+    list_filter = ['organizer__department']
     search_fields = ['name', 'description']
-    date_hierarchy = 'date'
-    # No event-level registration logic
 
 @admin.register(Schedule)
 class ScheduleAdmin(admin.ModelAdmin):
     list_display = ['title', 'event', 'start_time', 'end_time']
-    list_filter = ['event__date', 'start_time']
+    list_filter = ['start_time']
     search_fields = ['title', 'description']
-
 
 @admin.register(Slot)
 class SlotAdmin(admin.ModelAdmin):
     list_display = ['schedule', 'capacity']
     list_filter = ['schedule']
-    # No name field
