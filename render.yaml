@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: college-event-management
+    runtime: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn eventmanager.wsgi:application"
+    plan: free
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SECRET_KEY
+        generateValue: true        # Render auto-generates a secure random value
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"     # Replace with your custom domain if you have one
+      - key: DJANGO_SETTINGS_MODULE
+        value: eventmanager.settings
